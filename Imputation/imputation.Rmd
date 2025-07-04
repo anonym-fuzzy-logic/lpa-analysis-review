@@ -1,0 +1,186 @@
+---
+title: "Imputation"
+author: "A.Yankouskaya"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# Set default chunk options: show code output
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load-libraries}
+# Load required libraries
+library(readxl)      # For reading Excel files
+library(openxlsx)    # For writing Excel files
+library(stringr)     # For string manipulation
+```
+
+```{r load-data}
+# Define input and output file paths
+input_file <- "hbku_data_for_analysis_full.xlsx"
+output_file <- "hbku_data_for_analysis_renamed.xlsx"
+
+# Load raw dataset from Excel file
+df <- read_excel(input_file)
+
+# Trim whitespace from column names (before renaming)
+colnames(df) <- str_trim(colnames(df))
+```
+
+```{r rename-smd}
+# Rename SMD variables by extracting the final label after the last underscore
+# For example, from "METRIC_A5_Q2023SMD1_Preoccupation" to "Preoccupation"
+smd_pattern <- "^METRIC_A5_Q2023SMD[0-9]+_(.*)$"
+
+# Use regex to match and replace column names
+names(df) <- ifelse(
+  grepl(smd_pattern, names(df)),
+  str_match(names(df), smd_pattern)[,2],
+  names(df)
+)
+```
+
+```{r rename-perma}
+# Rename PERMA (SMWB) variables
+# Use regex to extract the label (e.g., "Positive_Emotion")
+perma_pattern <- "^METRIC_A6_QPERMADSM[0-9]+_(.*)$"
+
+# Loop over column names and rename where appropriate
+df_names <- names(df)
+df_names <- sapply(df_names, function(name) {
+  if (name == "METRIC_A6_QPERMADSM1_Positive_Emotion") {
+    return("Positive_Emotion")  # Special case handled manually
+  } else if (grepl(perma_pattern, name)) {
+    return(str_match(name, perma_pattern)[,2])
+  } else {
+    return(name)
+  }
+})
+names(df) <- df_names
+```
+
+```{r save-clean}
+# Save the cleaned dataset with renamed columns to a new Excel file
+write.xlsx(df, output_file, rowNames = FALSE)
+
+# Print confirmation
+cat("Renamed dataset saved as:", output_file, "\n")
+```
+
+```{r load-renamed-file}
+# Load the cleaned dataset again for further processing
+df_clean <- read_excel(output_file)
+
+# Preview column names to confirm changes
+head(names(df_clean))
+```
+
+```{r convert-to-numeric}
+# Define the renamed variable names for SMD and PERMA constructs
+smd_vars <- c("Preoccupation", "Tolerance", "Withdrawal", "Persistence",
+              "Displacement", "Problem", "Deception", "Escape", "Conflict")
+
+perma_vars <- c("Positive_Emotion", "Engagement", "Relationships", "Meaning", "Accomplishments")
+
+# Combine both into one list of variables to process
+renamed_vars <- c(smd_vars, perma_vars)
+
+# Convert to numeric, replacing "MA" with NA
+df_clean[renamed_vars] <- lapply(df_clean[renamed_vars], function(x) {
+  x <- as.character(x)         # Ensure it's character to detect "MA"
+  x[x == "NA"] <- NA           # Convert "MA" strings to NA
+  as.numeric(x)                # Convert remaining values to numeric
+})
+
+# Display summary to check conversion success
+summary(df_clean[renamed_vars])
+```
+
+```{r impute-NA}
+# Load the MICE package for multiple imputation
+library(mice)
+
+# Extract only the variables to be imputed
+impute_data <- df_clean[renamed_vars]
+
+# Perform multiple imputation using predictive mean matching (PMM)
+# Set m = 5 (number of imputed datasets), and fix seed for reproducibility
+mice_result <- mice(impute_data, m = 5, method = "pmm", seed = 123)
+
+# Show summary of imputed values
+summary(mice_result)
+
+# Complete the dataset using the first imputed dataset
+imputed_data <- complete(mice_result, 1)
+
+# Replace original data with imputed values
+df_clean[renamed_vars] <- imputed_data
+
+# Show updated summary after imputation
+summary(df_clean[renamed_vars])
+
+# Confirm no missing values remain in the imputed variables
+colSums(is.na(df_clean[renamed_vars]))
+```
+
+```{r save-imputed-file}
+# Define file name for final imputed dataset
+imputed_output_file <- "hbku_data_imputed.xlsx"
+
+# Save the fully imputed dataset
+write.xlsx(df_clean, imputed_output_file, rowNames = FALSE)
+
+# Print confirmation message
+cat("Imputed dataset saved as:", imputed_output_file, "\n")
+```
+
+```{r density-plot}
+# Visual diagnostics for imputation quality
+
+# Density plots: imputed vs observed values for each variable
+densityplot(mice_result, ~Preoccupation + Tolerance + Withdrawal + Persistence)
+densityplot(mice_result, ~Displacement + Conflict + Escape + Problem + Deception)
+densityplot(mice_result, ~Positive_Emotion + Engagement + Relationships + Meaning + Accomplishments)
+
+# Save all density plots into a PNG file
+png("mice_density_plots.png", width = 1000, height = 800)
+densityplot(mice_result)
+dev.off()
+
+# Trace plots: convergence of imputation across iterations
+png("mice_trace_plots.png", width = 1000, height = 800)
+plot(mice_result)
+dev.off()
+
+# Save MICE summary to a text file
+sink("mice_imputation_summary.txt")
+summary(mice_result)
+sink()
+
+# Save missing data pattern visualization to file
+#png("missing_data_pattern.png", width = 800, height = 600)
+md.pattern(impute_data)
+dev.off()
+```
+
+```{r compare-means-before-and-after}
+# Compare mean values before and after imputation
+
+# Calculate means of original (pre-imputed) data
+pre_impute_means <- colMeans(impute_data, na.rm = TRUE)
+
+# Calculate means of post-imputed data
+post_impute_means <- colMeans(imputed_data)
+
+# Combine results into a comparison table
+comparison_df <- data.frame(
+  Variable = names(pre_impute_means),
+  Before_Imputation = pre_impute_means,
+  After_Imputation = post_impute_means
+)
+
+# Display comparison
+print(comparison_df)
+```

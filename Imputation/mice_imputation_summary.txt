@@ -1,0 +1,24 @@
+Class: mids
+Number of multiple imputations:  5 
+Imputation methods:
+   Preoccupation        Tolerance       Withdrawal      Persistence     Displacement          Problem 
+           "pmm"            "pmm"            "pmm"            "pmm"            "pmm"            "pmm" 
+       Deception           Escape         Conflict Positive_Emotion       Engagement    Relationships 
+           "pmm"            "pmm"            "pmm"            "pmm"            "pmm"            "pmm" 
+         Meaning  Accomplishments 
+           "pmm"            "pmm" 
+PredictorMatrix:
+              Preoccupation Tolerance Withdrawal Persistence Displacement Problem Deception Escape Conflict
+Preoccupation             0         1          1           1            1       1         1      1        1
+Tolerance                 1         0          1           1            1       1         1      1        1
+Withdrawal                1         1          0           1            1       1         1      1        1
+Persistence               1         1          1           0            1       1         1      1        1
+Displacement              1         1          1           1            0       1         1      1        1
+Problem                   1         1          1           1            1       0         1      1        1
+              Positive_Emotion Engagement Relationships Meaning Accomplishments
+Preoccupation                1          1             1       1               1
+Tolerance                    1          1             1       1               1
+Withdrawal                   1          1             1       1               1
+Persistence                  1          1             1       1               1
+Displacement                 1          1             1       1               1
+Problem                      1          1             1       1               1
