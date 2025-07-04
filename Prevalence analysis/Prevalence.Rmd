@@ -1,0 +1,344 @@
+---
+title: "Prevalence"
+author: "A.Yankouskaya"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load-libraries}
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(openxlsx)
+```
+
+```{r load-data}
+# Set file path and load Excel data
+input_file <- "hbku_data_recoded.xlsx"
+df <- read_excel(input_file)
+
+# Preview structure
+str(df)
+head(df)
+```
+
+```{r weight-data}
+# List of variables to be weighted
+weighted_vars <- c("Preoccupation", "Tolerance", "Withdrawal", "Persistence",
+                   "Displacement", "Problem", "Deception", "Escape", "Conflict",
+                   "Positive_Emotion", "Engagement", "Relationships", "Meaning", "Accomplishments")
+
+# Multiply each variable by the weighting column 'allwt'
+df[weighted_vars] <- df[weighted_vars] * df$allwt
+
+# Preview to confirm weighting
+head(df[weighted_vars])
+```
+
+```{r smd-prevalence}
+## Prevalence of SMD Symptoms (cut-off ≥ 4) per Country
+# List of SMD items
+smd_items <- c("Preoccupation", "Tolerance", "Withdrawal", "Persistence",
+               "Displacement", "Problem", "Deception", "Escape", "Conflict")
+
+# Create a binary version of the SMD items using cut-off ≥ 4
+df_cutoff <- df
+df_cutoff[smd_items] <- lapply(df_cutoff[smd_items], function(x) ifelse(x >= 4, 1, 0))
+
+# Calculate prevalence per country (mean of binary responses)
+library(dplyr)
+smd_prevalence <- df_cutoff %>%
+  group_by(Country_Name) %>%
+  summarise(across(all_of(smd_items), ~ mean(.x, na.rm = TRUE))) %>%
+  arrange(Country_Name)
+
+# Convert to percentages
+smd_prevalence_percent <- smd_prevalence
+smd_prevalence_percent[smd_items] <- round(smd_prevalence_percent[smd_items] * 100, 2)
+
+# Preview
+head(smd_prevalence_percent)
+
+# Save prevalence table
+write.xlsx(smd_prevalence_percent, "SMD_Prevalence_by_Country.xlsx", rowNames = FALSE)
+
+```
+```{r smd-prevalence-sorting}
+# Define region mapping
+region_mapping <- c(
+  "Vietnam" = "Asia", "Turkey" = "Asia", "Bangladesh" = "Asia", "South Korea" = "Asia",
+  "Singapore" = "Asia", "Pakistan" = "Asia", "China" = "Asia", "Malaysia" = "Asia",
+  "Japan" = "Asia", "Indonesia" = "Asia", "India" = "Asia",
+  
+  "UAE" = "Arab", "Saudi Arabia" = "Arab", "Kuwait" = "Arab",
+  "Algeria" = "Arab", "Egypt" = "Arab",
+  
+  "Kenya" = "Africa", "Nigeria" = "Africa", "Ghana" = "Africa", "South Africa" = "Africa",
+  
+  "Chile" = "South America", "Argentina" = "South America", "Colombia" = "South America",
+  "Mexico" = "South America", "Brazil" = "South America",
+  
+  "United Kingdom" = "Western", "Australia" = "Western", "Sweden" = "Western",
+  "Germany" = "Western", "Canada" = "Western", "Estonia" = "Western",
+  "United States" = "Western", "France" = "Western", "Bulgaria" = "Western",
+  "Italy" = "Western"
+)
+
+# Add Region column
+smd_prevalence_percent$Region <- region_mapping[smd_prevalence_percent$Country_Name]
+
+# Sort by Region, then Country_Name
+smd_prevalence_sorted <- smd_prevalence_percent %>%
+  arrange(Region, Country_Name)
+
+# Save to Excel
+write.xlsx(smd_prevalence_sorted, "SMD_Prevalence_by_Country.xlsx", rowNames = FALSE)
+
+library(ggplot2)
+library(ggtext)
+library(viridis)
+library(dplyr)
+library(tidyr)
+library(readxl)
+
+# --- Load and prepare data ---
+# Read data (assumes Region and Country_Name are included)
+smd_prevalence_percent <- read_excel("SMD_Prevalence_by_Country.xlsx")
+
+# Manual order for rows (region + country)
+ordered_labels <- c(
+  "Africa", "Ghana", "Kenya", "Nigeria", "South Africa",
+  "Arab", "Algeria", "Egypt", "Kuwait", "Saudi Arabia", "UAE",
+  "Asia", "Bangladesh", "China", "India", "Indonesia", "Japan", "Malaysia", "Pakistan",
+  "Singapore", "South Korea", "Turkey", "Vietnam",
+  "South America", "Argentina", "Brazil", "Chile", "Colombia", "Mexico",
+  "Western", "Australia", "Bulgaria", "Canada", "Estonia", "France", "Germany",
+  "Italy", "Sweden", "United Kingdom", "United States"
+)
+
+region_labels <- c("Africa", "Arab", "Asia", "South America", "Western")
+
+# Add dummy rows for region headers
+region_rows <- data.frame(Country_Name = region_labels, Region = region_labels)
+for (col in setdiff(names(smd_prevalence_percent), names(region_rows))) {
+  region_rows[[col]] <- NA
+}
+
+# Combine and sort
+smd_all <- bind_rows(smd_prevalence_percent, region_rows) %>%
+  mutate(Country_Name = factor(Country_Name, levels = ordered_labels)) %>%
+  arrange(Country_Name)
+
+# Long format
+smd_long <- smd_all %>%
+  pivot_longer(cols = Preoccupation:Conflict, names_to = "SMD_Item", values_to = "Prevalence")
+
+# Apply styled label and dynamic contrast colour
+smd_long <- smd_long %>%
+  mutate(
+    Label = factor(
+      ifelse(Country_Name %in% region_labels,
+             paste0("**<span style='font-size:20pt;color:black;'>", Country_Name, "</span>**"),
+             as.character(Country_Name)),
+      levels = rev(unique(ifelse(ordered_labels %in% region_labels,
+                                  paste0("**<span style='font-size:20pt;color:black;'>", ordered_labels, "</span>**"),
+                                  ordered_labels)))
+    ),
+    Label_Color = ifelse(Prevalence > 25, "white", "black")
+  )
+
+# --- Plot ---
+smd_plot <- ggplot(smd_long, aes(x = SMD_Item, y = Label, fill = Prevalence)) +
+  geom_tile(color = "white", linewidth = 0.4) +
+  geom_text(aes(label = ifelse(is.na(Prevalence), "", sprintf("%.1f", Prevalence)),
+                color = Label_Color), size = 6) +
+  scale_color_identity() +
+  scale_fill_gradientn(
+    colors = hcl.colors(100, "YlOrBr", rev = TRUE),  # ← Yellow-orange-brown
+    name = "Prevalence (%)",
+    na.value = "white"
+  ) +
+  guides(fill = guide_colourbar(
+    barwidth = 1.5,       # wider bar
+    barheight = 20,       # longer bar
+    title.position = "right",  # puts the title on the left
+    title.theme = element_text(angle = 90, size = 20, face = "bold")  # vertical title
+  )) +
+  
+  scale_y_discrete(limits = levels(smd_long$Label)) +
+  labs(x = "SMD Symptoms", y = NULL) +
+  theme_minimal(base_size = 20) +
+  theme(
+    text = element_text(color = "black"),
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA),
+    legend.background = element_rect(fill = "white", color = NA),
+    axis.text.x = element_text(angle = 45, hjust = 1, face = "bold",color = "black"),
+    axis.text.y = ggtext::element_markdown(size = 20, hjust = 1),
+    legend.title = element_text(size = 18, face = "bold"),  
+    legend.text = element_text(size = 18),    
+    panel.grid = element_blank(),
+    axis.ticks = element_blank(),
+    plot.margin = margin(10, 10, 10, 40)
+  )
+
+# Save output
+ggsave("SMD_Prevalence_Heatmap.png", smd_plot, width = 12, height = 18, dpi = 600, bg = "white")
+
+# View
+smd_plot
+```
+
+```{r heatmap-perma}
+
+library(ggplot2)
+library(ggtext)
+library(viridis)
+library(dplyr)
+library(tidyr)
+library(readxl)
+
+# --- Load and prepare data ---
+# Read PERMA prevalence data
+perma_prevalence_percent <- read_excel("PERMA_Prevalence_by_Country.xlsx")
+
+# Manual order for rows (region + country)
+ordered_labels <- c(
+  "Africa", "Ghana", "Kenya", "Nigeria", "South Africa",
+  "Arab", "Algeria", "Egypt", "Kuwait", "Saudi Arabia", "UAE",
+  "Asia", "Bangladesh", "China", "India", "Indonesia", "Japan", "Malaysia", "Pakistan",
+  "Singapore", "South Korea", "Turkey", "Vietnam",
+  "South America", "Argentina", "Brazil", "Chile", "Colombia", "Mexico",
+  "Western", "Australia", "Bulgaria", "Canada", "Estonia", "France", "Germany",
+  "Italy", "Sweden", "United Kingdom", "United States"
+)
+
+region_labels <- c("Africa", "Arab", "Asia", "South America", "Western")
+
+# Add dummy rows for region headers
+region_rows <- data.frame(Country_Name = region_labels, Region = region_labels)
+for (col in setdiff(names(perma_prevalence_percent), names(region_rows))) {
+  region_rows[[col]] <- NA
+}
+
+# Combine and sort
+perma_all <- bind_rows(perma_prevalence_percent, region_rows) %>%
+  mutate(Country_Name = factor(Country_Name, levels = ordered_labels)) %>%
+  arrange(Country_Name)
+
+# Long format
+perma_long <- perma_all %>%
+  pivot_longer(cols = Positive_Emotion:Accomplishments, names_to = "PERMA_Item", values_to = "Prevalence")
+
+# Apply styled label and dynamic contrast colour
+perma_long <- perma_long %>%
+  mutate(
+    Label = factor(
+      ifelse(Country_Name %in% region_labels,
+             paste0("**<span style='font-size:20pt;color:black;'>", Country_Name, "</span>**"),
+             as.character(Country_Name)),
+      levels = rev(unique(ifelse(ordered_labels %in% region_labels,
+                                  paste0("**<span style='font-size:20pt;color:black;'>", ordered_labels, "</span>**"),
+                                  ordered_labels)))
+    ),
+    Label_Color = ifelse(Prevalence > 25, "white", "black")
+  )
+
+# --- Plot ---
+perma_plot <- ggplot(perma_long, aes(x = PERMA_Item, y = Label, fill = Prevalence)) +
+  geom_tile(color = "white", linewidth = 0.4) +
+  geom_text(aes(label = ifelse(is.na(Prevalence), "", sprintf("%.1f", Prevalence)),
+                color = Label_Color), size = 6) +
+  scale_color_identity() +
+  scale_fill_gradientn(
+    colors = hcl.colors(100, "Blues", rev = TRUE),  # ← BLUE colour scheme
+    name = "Prevalence (%)",
+    na.value = "white"
+  ) +
+  guides(fill = guide_colourbar(
+    barwidth = 1.5,
+    barheight = 20,
+    title.position = "right",
+    title.theme = element_text(angle = 90, size = 20, face = "bold")
+  )) +
+  scale_y_discrete(limits = levels(perma_long$Label)) +
+  labs(x = "SMWB Dimensions", y = NULL) +
+  theme_minimal(base_size = 20) +
+  theme(
+    text = element_text(color = "black"),
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA),
+    legend.background = element_rect(fill = "white", color = NA),
+    axis.text.x = element_text(angle = 45, hjust = 1, face = "bold", color = "black"),
+    axis.text.y = ggtext::element_markdown(size = 20, hjust = 1),
+    legend.title = element_text(size = 18, face = "bold"),  
+    legend.text = element_text(size = 18),    
+    panel.grid = element_blank(),
+    axis.ticks = element_blank(),
+    plot.margin = margin(10, 10, 10, 40)
+  )
+
+# Save output
+ggsave("PERMA_Prevalence_Heatmap.png", perma_plot, width = 12, height = 18, dpi = 600, bg = "white")
+
+# View
+perma_plot
+```
+
+```{r combined plot}
+library(patchwork)
+
+# Combine horizontally: SMD on left, PERMA on right
+combined_plot <- smd_plot | perma_plot +
+  plot_layout(guides = "collect") & 
+  theme(legend.position = "right")
+
+# Save as high-resolution PNG
+ggsave("Combined_SMD_SMWB.png", combined_plot, width = 24, height = 18, dpi = 600, bg = "white")
+
+#_____________________________average__________________________________________
+library(ggplot2)
+library(dplyr)
+library(readr)
+
+# Load the data
+data <- read_csv("Regional_Averages_for_SMD_and_PERMA.csv")
+
+# Calculate average prevalence per region for SMD and SMWB
+smd_vars <- c("Preoccupation", "Tolerance", "Withdrawal", "Persistence",
+              "Displacement", "Problem", "Deception", "Escape", "Conflict")
+smwb_vars <- c("Positive_Emotion", "Engagement", "Relationships", "Meaning", "Accomplishments")
+
+avg_data <- data %>%
+  mutate(SMD = rowMeans(select(., all_of(smd_vars)), na.rm = TRUE),
+         SMWB = rowMeans(select(., all_of(smwb_vars)), na.rm = TRUE)) %>%
+  select(Region, SMD, SMWB) %>%
+  pivot_longer(cols = c(SMD, SMWB), names_to = "Domain", values_to = "Prevalence")
+
+# Define custom colours
+plot_colors <- c("SMD" = "#D55E00", "SMWB" = "#56B4E9")
+
+# Plot with black border around bars
+ggplot(avg_data, aes(x = Prevalence, y = Region, fill = Domain)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7, color = "black") +
+  geom_text(aes(label = round(Prevalence, 1)),
+            position = position_dodge(width = 0.8),
+            hjust = -0.1, size = 4.5) +
+  scale_fill_manual(values = plot_colors, labels = c("High SMD", "Low SMWB")) +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.15))) +
+  labs(x = "Average Prevalence (%)", y = NULL, fill = NULL) +
+  theme_minimal(base_size = 18) +
+  theme(legend.position = "top",
+        panel.grid.major.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        axis.text.y = element_text(color = "black", face = "bold"),
+        panel.grid.minor = element_blank())
+
+# Save high-resolution figure
+ggsave("Grouped_SMD_SMWB.png", width = 12, height = 7, dpi = 400)
+
+```
