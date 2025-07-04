@@ -1,0 +1,171 @@
+---
+title: "Descriptive"
+author: "A.Yankouskaya"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r calculate-totals and avg}
+# Load necessary packages
+library(readxl)
+library(openxlsx)
+
+# Load the data
+input_file <- "hbku_data_imputed.xlsx"
+df <- read_excel(input_file)
+
+# Recode variables
+vars_to_recode <- c("Preoccupation", "Tolerance", "Withdrawal", "Persistence",
+                    "Displacement", "Problem", "Deception", "Escape", "Conflict",
+                    "Positive_Emotion", "Engagement", "Relationships", "Meaning", "Accomplishments")
+
+df[vars_to_recode] <- lapply(df[vars_to_recode], function(x) {
+  dplyr::recode(x,
+                `2` = 1,
+                `3` = 2,
+                `4` = 3,
+                `5` = 4,
+                `6` = 5,
+                .default = NA_real_)
+})
+
+# Save recoded data (optional)
+write.xlsx(df, "hbku_data_recoded.xlsx", rowNames = FALSE)
+
+# Multiply selected variables by weight
+vars_to_weight <- vars_to_recode
+df[vars_to_weight] <- df[vars_to_weight] * df$allwt
+
+# Create SMD_Total
+smd_vars <- c("Preoccupation", "Tolerance", "Withdrawal", "Persistence",
+              "Displacement", "Problem", "Deception", "Escape", "Conflict")
+df$SMD_Total <- rowSums(df[, smd_vars], na.rm = TRUE)
+
+# Create SMWB_Average
+perma_vars <- c("Positive_Emotion", "Engagement", "Relationships", "Meaning", "Accomplishments")
+df$PERMA_Avg <- rowMeans(df[, perma_vars], na.rm = TRUE)
+
+#Save final dataset
+output_file <- "hbku_data_imputed_avg.xlsx"
+write.xlsx(df, output_file, rowNames = FALSE)
+
+# Confirmation
+cat("Saved the final dataset with SMD_Total and PERMA_Avg as:", output_file, "\n")
+
+```
+
+```{r plotting-SMD-Total-per-country}
+library(readxl)
+library(dplyr)
+library(ggplot2)
+
+# Load the data
+df <- read_excel("hbku_data_imputed_avg.xlsx")
+
+# Calculate country-level mean and SD for SMD_Total and PERMA_Avg
+summary_stats <- df %>%
+  group_by(Country_Name) %>%
+  summarise(
+    SMD_Mean = mean(SMD_Total, na.rm = TRUE),
+    SMD_SD = sd(SMD_Total, na.rm = TRUE),
+    PERMA_Mean = mean(PERMA_Avg, na.rm = TRUE),
+    PERMA_SD = sd(PERMA_Avg, na.rm = TRUE)
+  ) %>%
+  arrange(desc(SMD_Mean))  # optional: sort by SMD mean
+
+# Print summary table
+print(summary_stats)
+
+# Create plot of SMD_Total by country
+smd_plot <- ggplot(summary_stats, aes(x = SMD_Mean, y = reorder(Country_Name, SMD_Mean))) +
+  geom_bar(stat = "identity", fill = "lightblue") +
+  geom_errorbarh(aes(xmin = SMD_Mean - SMD_SD, xmax = SMD_Mean + SMD_SD), height = 0.3, color = "black") +
+  labs(
+    title = "Average Social Media Disorder Score by Country",
+    x = "Mean score (± SD)",
+    y = "Country"
+  ) +
+  theme_minimal(base_size = 16)
+
+# Save the plot as high-resolution PNG
+ggsave("SMD_Total_by_Country.png", smd_plot, width = 10, height = 8, dpi = 300)
+
+# Confirmation message
+cat("Plot saved as 'SMD_Total_by_Country.png'\n")
+
+```
+```{r plotting-PERMA-Avg-per-country}
+# Order countries by ascending SMD_Mean
+ordered_countries <- summary_stats$Country_Name[order(summary_stats$SMD_Mean)]
+summary_stats$Country_Name <- factor(summary_stats$Country_Name, levels = ordered_countries)
+
+# PERMA_Avg plot using the same ascending order
+perma_plot <- ggplot(summary_stats, aes(x = PERMA_Mean, y = Country_Name)) +
+  geom_bar(stat = "identity", fill = "lightgreen") +
+  geom_errorbarh(aes(xmin = PERMA_Mean - PERMA_SD, xmax = PERMA_Mean + PERMA_SD), height = 0.3, color = "black") +
+  labs(
+    title = "Average Social Media-related Well-being Score by Country",
+    x = "Mean Score (± SD)",
+    y = "Country"
+  ) +
+  theme_minimal(base_size = 16)
+
+# Save the PERMA plot
+ggsave("PERMA_Avg_by_Country.png", perma_plot, width = 10, height = 8, dpi = 300)
+
+# Confirmation
+cat("PERMA_Avg_by_Country.png saved with countries ordered by ascending SMD_Total.\n")
+
+```
+
+```{r combining-plots}
+# Load patchwork for combining plots
+library(patchwork)
+
+# Combine the two plots vertically with a shared title
+combined_plot <- smd_plot / perma_plot +
+  plot_annotation(
+    title = "",
+    theme = theme(plot.title = element_text(size = 16, face = "bold", hjust = 0.5))
+  )
+
+# Save the combined figure
+ggsave("SMD_PERMA_Combined_by_Country.png", combined_plot, width = 12, height = 14, dpi = 300)
+
+# Confirmation
+cat("Combined plot saved as 'SMD_PERMA_Combined_by_Country.png'\n")
+
+```
+```{r save-descriptive-in-excel}
+library(dplyr)
+library(openxlsx)
+
+# Calculate weighted SMD_Total and PERMA_Avg again (after applying weights)
+df$SMD_Total <- rowSums(df[, c("Preoccupation", "Tolerance", "Withdrawal", "Persistence",
+                               "Displacement", "Problem", "Deception", "Escape", "Conflict")], na.rm = TRUE)
+
+df$PERMA_Avg <- rowMeans(df[, c("Positive_Emotion", "Engagement", "Relationships", "Meaning", "Accomplishments")], na.rm = TRUE)
+
+# Calculate weighted means and SDs per country
+summary_stats <- df %>%
+  group_by(Country_Name) %>%
+  summarise(
+    SMD_Mean = mean(SMD_Total, na.rm = TRUE),
+    SMD_SD = sd(SMD_Total, na.rm = TRUE),
+    PERMA_Mean = mean(PERMA_Avg, na.rm = TRUE),
+    PERMA_SD = sd(PERMA_Avg, na.rm = TRUE)
+  )
+
+# Save the summary as an Excel file
+write.xlsx(summary_stats, "SMD_PERMA_by_Country.xlsx", rowNames = FALSE)
+
+# Confirmation message
+cat("Saved weighted means and SDs per country to 'SMD_PERMA_by_Country.xlsx'\n")
+
+
+```
+
