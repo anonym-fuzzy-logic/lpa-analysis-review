@@ -1,0 +1,124 @@
+---
+title: "Demographic plots"
+output: html_notebook
+---
+
+```{r}
+# Load required libraries
+library(readxl)      # For reading Excel files
+library(dplyr)       # For data manipulation
+library(forcats)     # For factor reordering
+library(ggplot2)     # For creating plots
+library(patchwork)   # For combining plots
+
+# Load the dataset from Excel
+df <- read_excel("Sample_characteristics.xlsx")
+
+# Rename the "Country Name" column to "Country_Name" for consistency
+colnames(df)[colnames(df) == "Country Name"] <- "Country_Name"
+
+##################################################################################
+# Recode gender variable to factor with labels
+df$QGENDER <- factor(df$QGENDER, levels = c(1, 2), labels = c("Male", "Female"))
+
+# Recode age variable into ordered factor with age brackets
+df$QAGE <- cut(
+  df$QAGE,
+  breaks = c(18, 24, 54, 64, Inf),
+  labels = c("18-24", "25-54", "55-64", "65 or older"),
+  right = TRUE
+)
+
+# Sort Country_Name factor levels by decreasing frequency
+df$Country_Name <- factor(df$Country_Name, levels = names(sort(table(df$Country_Name), decreasing = TRUE)))
+```
+
+```{r}
+# Create summary table: count and proportion of gender by country
+gender_data <- df %>%
+  filter(!is.na(QGENDER)) %>%  # Remove missing gender
+  group_by(Country_Name, QGENDER) %>%
+  summarise(Count = n(), .groups = "drop") %>%
+  group_by(Country_Name) %>%
+  mutate(Proportion = Count / sum(Count))
+
+# Create gender distribution plot
+gender_plot <- ggplot(gender_data, aes(x = Proportion, y = fct_rev(Country_Name), fill = QGENDER)) +
+  geom_bar(stat = "identity", position = "stack", colour = "black") +
+  geom_text(aes(label = scales::percent(Proportion, accuracy = 1)),
+            position = position_stack(vjust = 0.6), size = 4.5, colour = "black") +
+  scale_fill_manual(values = c("Male" = "orange", "Female" = "#87CEEB")) +
+  coord_cartesian(xlim = c(0.2, 0.8)) +
+  labs(
+    title = "Gender Distribution by Country",
+    x = "Proportion",
+    y = "Country",
+    fill = "Gender"
+  ) +
+  theme_minimal(base_size = 18) +
+  theme(
+    axis.title = element_text(face = "bold"),
+    axis.text.y = element_text(color = "black", size = 18),
+    axis.text.x = element_text(size = 16),
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 22),
+    legend.title = element_text(size = 18),
+    legend.text = element_text(size = 16),
+    legend.justification = "left",
+    legend.position = "bottom",
+  )
+ggsave("gender_plot.jpeg", 
+       plot = gender_plot, dpi = 300, width = 12, height = 14, units = "in")
+```
+
+```{r}
+# Create summary table: count and proportion of age groups by country
+age_data <- df %>%
+  filter(!is.na(QAGE)) %>%  # Remove missing age group
+  group_by(Country_Name, QAGE) %>%
+  summarise(Count = n(), .groups = "drop") %>%
+  group_by(Country_Name) %>%
+  mutate(Proportion = Count / sum(Count))
+
+# Create age distribution plot with dodged bars
+age_plot <- ggplot(age_data, aes(x = Proportion, y = fct_rev(Country_Name), fill = QAGE)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), colour = "black") +
+  geom_text(aes(label = scales::percent(Proportion, accuracy = 1)),
+            position = position_dodge(width = 0.8), hjust = -0.1, size = 4.5, colour = "black") +
+  scale_fill_manual(values = c(
+    "18-24" = "#FFD700",
+    "25-54" = "#2A9D8F",
+    "55-64" = "#E76F51",
+    "65 or older" = "#8B008B"
+  )) +
+  labs(
+    title = "Age Distribution by Country",
+    x = "Proportion",
+    y = NULL,
+    fill = "Age Group"
+  ) +
+  coord_cartesian(xlim = c(0, max(age_data$Proportion) + 0.05)) +  # add padding for labels
+  theme_minimal(base_size = 18) +
+  theme(
+    axis.title = element_text(face = "bold"),
+    axis.text.y = element_text(color = "black", size = 18),
+    axis.text.x = element_text(size = 16),
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 22),
+    legend.title = element_text(size = 18),
+    legend.text = element_text(size = 16),
+    legend.justification = "left",
+    legend.position = "bottom"
+  )
+
+# Save as image
+ggsave("age_plot.jpeg", 
+       plot = age_plot, dpi = 300, width = 12, height = 15, units = "in")
+```
+
+```{r}
+combined_plot <- gender_plot + age_plot + 
+  plot_layout(ncol = 2, widths = c(1, 1.1), guides = "collect") & 
+  theme(legend.position = "bottom")
+
+ggsave("Combined_Gender_Age_Distribution.jpeg", 
+       plot = combined_plot, dpi = 600, width = 24, height = 27, units = "in")
+```
